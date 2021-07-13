@@ -1,6 +1,6 @@
 # Windows GKE with Ingress 
 
-[Windows GKE](https://cloud.google.com/kubernetes-engine/docs/concepts/windows-server-gke) is a Kubernetes service offered by Google Cloud for management of containerized workload based on Windows VMs. There are many benefits with running a GKE cluster as opposed to open source Kubernetes cluster mainly around maintainability and patching. One key feature missing from Windows GKE is that [ingrsss](https://cloud.google.com/kubernetes-engine/docs/concepts/ingress) doesn't currently work out of the box. This guide attemps to show how you can still get the benefits on ingress by deploying an [Nginx](https://www.alibabacloud.com/blog/how-to-use-nginx-as-an-https-forward-proxy-server_595799) forwderer to re-driect traffic. This guide shows you how to take a sample containerized Windows application and forward traffic via a GKE ingress resource running on a linux based node
+[Windows GKE](https://cloud.google.com/kubernetes-engine/docs/concepts/windows-server-gke) is a Kubernetes service offered by Google Cloud for management of containerized workload based on Windows VMs. There are many benefits with running a GKE cluster as opposed to open source Kubernetes cluster mainly around maintainability and patching. One key feature missing from Windows GKE is that [ingrsss](https://cloud.google.com/kubernetes-engine/docs/concepts/ingress) doesn't currently work out of the box. This guide attemps to show how you can still get the benefits of ingress by deploying an [Nginx](https://www.alibabacloud.com/blog/how-to-use-nginx-as-an-https-forward-proxy-server_595799) forwderer to re-driect traffic. This guide steps through a sample containerized Windows application and forward traffic via a GKE ingress resource running on a linux based node
 
 
 ## Prerequists 
@@ -35,7 +35,7 @@ once it's everything is deployed, you will end up with a running pod on a Window
 Validating the service is working and receiving traffic by running a busybox pod on the same namespace and valite that the service `http://iis-svc` is running 
 
 ```
-   kubectl run -i --tty busybox --image=busybox -- sh
+   kubectl run -i --tty busybox --image=busybox -- curl http://iis-svc
 ```
 
 ![windows Service Validation](./assets/working_iis_service.png)
@@ -45,7 +45,7 @@ Validating the service is working and receiving traffic by running a busybox pod
 
 ### set a configmap
 
-The Nginx pod will forward as a proxy for traffic to be re-directed to the Windows deployment. Before we do that, we need to set a key/value pair so the Nginx pod knows which service to forward traffic to. To acoomplish that, we use [configmap](https://kubernetes.io/docs/concepts/configuration/configmap/) to pass that value as a environment variable that can be picked up. 
+The Nginx deployment will act as a proxy for traffic to be re-directed to the Windows deployment. Before we do that, we need to set a key/value pair so that the Nginx pod knows which service to forward traffic to. To acoomplish that, we use [configmap](https://kubernetes.io/docs/concepts/configuration/configmap/) to pass that value as a environment variable that can be picked up. 
 
 ```
    kubectl create configmap windows-service --from-literal=service=iis-svc
@@ -53,7 +53,7 @@ The Nginx pod will forward as a proxy for traffic to be re-directed to the Windo
 
 ### Deploy Nginx to forward traffic
 
-You can manually update an Nginx image to foward the traffic to the Windows Server based service. However to make it more dynamic in this example, we will use an updated Nginx image that takes an environment variable as the service. The updated Nginx instance will need a configuration file that forwards all traffic to the Windows Server based service. To accomplish that, we use the example configuartion below. The file can be found under `/etc/nginx/conf.d/frontend.conf.template` for docker image `sapient007/nginx-proxy:test_build_env` as a reference. 
+You can manually update an Nginx image to foward the traffic to the Windows Server based service name exposed. However to make it more dynamic in this example, we will use an updated Nginx image that takes an environment variable as the service name. The updated Nginx instance will have a configuration file that forwards all traffic to the Windows Server based service. To accomplish that, we use the example configuartion below on the Nginx instance. The file can be found under `/etc/nginx/conf.d/frontend.conf.template` for docker image `sapient007/nginx-proxy:test_build_env` as a reference. 
 
 ```
    server {
@@ -66,7 +66,7 @@ You can manually update an Nginx image to foward the traffic to the Windows Serv
 
 ```
 
-the nginx instance needs to be updated to refelct the service name post start. To accomplish this, we must provide the environment variable `service_name` and also a command to do a environment variable substitution post start. below is a deployment manifest for referece. The portion that updates the Nginx instance occurs at the `postStart` event
+the nginx instance needs to be updated to refelct the service name post start. To do this, we provide an environment variable `service_name` and also a command to do a environment variable substitution post start. below is a deployment manifest for referece. The portion that updates the Nginx instance is at the `postStart` event
 
 ```
 apiVersion: apps/v1
@@ -114,13 +114,13 @@ at this point, you should have 2 working depoyments. One deployments is your Win
 
 ![deployments](./assets/deployments.png)
 
-once all pods are healthy in the deployment. You can expose the Nginx deployment with a NodePort. 
+when all pods are healthy in the deployments. You can expose the Nginx deployment with a NodePort. 
 
 ```
   kubectl expose deploy nginx --name nginx-svc --port 80 --target-port 80 --type NodePort
 ```
 
-Once the NodePort has been created. You can create an ingress resource to expose the NodePort created previously 
+Once the NodePort has been created. You can create an ingress resource to expose the NodePort. Below is a smaple ingress deployment manifeest. 
 
 ```
    apiVersion: networking.k8s.io/v1beta1
@@ -133,7 +133,14 @@ Once the NodePort has been created. You can create an ingress resource to expose
       servicePort: 80
 ```
 
-takes a minute or 2 for an LB resource in addition to external IP to be created and routeable. To check status and IP of your ingress with
+deploy the ingress resource with 
+
+```
+  kubectl apply -f ingress.yaml
+```
+
+
+It takes a minute or 2 for an LB resource in addition to external IP to be created and routeable. To check status and IP of your ingress with
 
 ```
   kubectl get ingress
