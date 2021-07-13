@@ -2,6 +2,8 @@
 
 [Windows GKE](https://cloud.google.com/kubernetes-engine/docs/concepts/windows-server-gke) is a Kubernetes service offered by Google Cloud for management of containerized workload based on Windows VMs. There are many benefits with running a GKE cluster as opposed to open source Kubernetes cluster mainly around maintainability and patching. One key feature missing from Windows GKE is that [ingrsss](https://cloud.google.com/kubernetes-engine/docs/concepts/ingress) doesn't currently work out of the box. This guide attemps to show how you can still get the benefits of ingress by deploying an [Nginx](https://www.alibabacloud.com/blog/how-to-use-nginx-as-an-https-forward-proxy-server_595799) forwderer to re-driect traffic. This guide steps through a sample containerized Windows application and forward traffic via a GKE ingress resource running on a linux based node
 
+![Arch Diagram](./assets/arch.png)
+
 
 ## Prerequists 
 
@@ -14,7 +16,7 @@
 
 Follow this [guide](https://cloud.google.com/kubernetes-engine/docs/quickstart) on how to stand up a GKE cluster. Once complete, add [Windows Server nodes](https://cloud.google.com/kubernetes-engine/docs/how-to/creating-a-cluster-windows) to the cluster. When complete with the steps above, there should be a single GKE cluster containing both Windows Server and Linux based nodes in their respectibe pools. 
 
-![windows server nodes](./assets/windows_server_nodes.png)
+![windows server nodes]
 
 ## Deploy containerized application on Windows nodes and expose NodePort Service
  
