@@ -1,0 +1,37 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nginx
+  labels: 
+    app: nginx
+spec:
+  selector:
+    matchLabels:
+      app: nginx
+  replicas: 1
+  template:
+    metadata:
+      labels:
+        app: nginx
+    spec:
+      containers:
+      - name: nginx
+        image: "sapient007/nginx-proxy:test_build_env"
+        lifecycle:
+          postStart:
+            exec:
+              command: 
+                - "sh"
+                - "-c" 
+                - |
+                  envsubst '${service_name}' < /etc/nginx/conf.d/default.conf.template > /etc/nginx/conf.d/default.conf
+                  nginx -s reload
+          preStop:
+            exec:
+              command: ["/usr/sbin/nginx","-s","quit"]
+        env:
+          - name: service_name
+            valueFrom:
+              configMapKeyRef:
+                name: windows-service
+                key: service
