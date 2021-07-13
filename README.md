@@ -1,109 +1,144 @@
-# Docsy Example
+# Windows GKE with Ingress 
 
-[Docsy](https://github.com/google/docsy) is a Hugo theme for technical documentation sites, providing easy site navigation, structure, and more. This **Docsy Example Project** uses the Docsy theme, as well as providing a skeleton documentation structure for you to use. You can either copy this project and edit it with your own content, or use the theme in your projects like any other [Hugo theme](https://gohugo.io/themes/installing-and-using-themes/).
+[Windows GKE](https://cloud.google.com/kubernetes-engine/docs/concepts/windows-server-gke) is a Kubernetes service offered by Google Cloud for management of containerized workload based on Windows VMs. There are many benefits with running a GKE cluster as opposed to open source Kubernetes cluster mainly around maintainability and patching. One key feature missing from Windows GKE is that [ingrsss] (https://cloud.google.com/kubernetes-engine/docs/concepts/ingress) doesn't currently work out of the box. This guide attemps to show how you can still get the benefits on ingress by deploying an [Nginx](https://www.alibabacloud.com/blog/how-to-use-nginx-as-an-https-forward-proxy-server_595799) forwderer to re-driect traffic. This guide shows you how to take a sample containerized Windows application and forward traffic via a GKE ingress resource running on a linux based node
 
-The theme is included in this project as a Git submodule:
 
-```bash
-▶ git submodule
- a053131a4ebf6a59e4e8834a42368e248d98c01d themes/docsy (heads/master)
+## Prerequists 
+
+1. Container Registry  
+2. Windows GKE nodes
+3. Linux GKE nodes
+
+
+### Set up the GKE cluster
+
+Follow this [guide](https://cloud.google.com/kubernetes-engine/docs/quickstart) on how to stand up a GKE cluster. Once complete, add [Windows Server nodes](https://cloud.google.com/kubernetes-engine/docs/how-to/creating-a-cluster-windows) to the cluster. When complete with the steps above, there should be a single GKE cluster containing both Windows Server and Linux based nodes in their respectibe pools. 
+
+![windows server nodes](./assets/windows_server_nodes.png)
+
+## Deploy containerized application on Windows nodes and expose NodePort Service
+ 
+Follow this  [guide](https://cloud.google.com/kubernetes-engine/docs/how-to/deploying-windows-app#create_a_deployment_manifest_file) on how to deploy a containized application on the Windows Server node created in the previous step. 
+
+To expose the application, run the following command to expose as a NodePort service 
+```
+   kubectl expose deployment iis --name iis-svc --port 80 --target-port 80 --type NodePort
 ```
 
-This Docsy Example Project is hosted at [https://example.docsy.dev/](https://example.docsy.dev/).
+once it's everything is deployed, you will end up with a running pod on a Windows Server node and a NodePort service exposing the deployment 
 
-You can find detailed theme instructions in the Docsy user guide: https://docsy.dev/docs/
+![windows deployment](./assets/iis_deploy.png)
 
-This is not an officially supported Google product. This project is currently maintained.
+![windows Service](./assets/iis_service.png)
 
-## Using the Docsy Example Project as a template
 
-A simple way to get started is to use this project as a template, which gives you a site project that is set up and ready to use. To do this: 
-
-1. Click **Use this template**.
-
-2. Select a name for your new project and click **Create repository from template**.
-
-3. Make your own local working copy of your new repo using git clone, replacing https://github.com/my/example.git with your repo’s web URL:
-
-```bash
-git clone --recurse-submodules --depth 1 https://github.com/my/example.git
-```
-
-You can now edit your own versions of the site’s source files.
-
-If you want to do SCSS edits and want to publish these, you need to install `PostCSS`
-
-```bash
-npm install
-```
-
-## Running the website locally
-
-Building and running the site locally requires a recent `extended` version of [Hugo](https://gohugo.io).
-You can find out more about how to install Hugo for your environment in our
-[Getting started](https://www.docsy.dev/docs/getting-started/#prerequisites-and-installation) guide.
-
-Once you've made your working copy of the site repo, from the repo root folder, run:
+Validating the service is working and receiving traffic by running a busybox pod on the same namespace and valite that the service `http://iis-svc` is running 
 
 ```
-hugo server
+   kubectl run -i --tty busybox --image=busybox -- sh
 ```
 
-## Running a container locally
+![windows Service Validation](./assets/working_iis_service.png)
 
-You can run docsy-example inside a [Docker](https://docs.docker.com/)
-container, the container runs with a volume bound to the `docsy-example`
-folder. This approach doesn't require you to install any dependencies other
-than [Docker Desktop](https://www.docker.com/products/docker-desktop) on
-Windows and Mac, and [Docker Compose](https://docs.docker.com/compose/install/)
-on Linux.
 
-1. Build the docker image 
+## Set up Nginx deployment to forward traffic to deployment
 
-   ```bash
-   docker-compose build
-   ```
+### set a configmap
 
-1. Run the built image
-
-   ```bash
-   docker-compose up
-   ```
-
-   > NOTE: You can run both commands at once with `docker-compose up --build`.
-
-1. Verify that the service is working. 
-
-   Open your web browser and type `http://localhost:1313` in your navigation bar,
-   This opens a local instance of the docsy-example homepage. You can now make
-   changes to the docsy example and those changes will immediately show up in your
-   browser after you save.
-
-### Cleanup
-
-To stop Docker Compose, on your terminal window, press **Ctrl + C**. 
-
-To remove the produced images run:
-
-```console
-docker-compose rm
-```
-For more information see the [Docker Compose
-documentation](https://docs.docker.com/compose/gettingstarted/).
-
-## Troubleshooting
-
-As you run the website locally, you may run into the following error:
+The Nginx pod will forward as a proxy for traffic to be re-directed to the Windows deployment. Before we do that, we need to set a key/value pair so the Nginx pod knows which service to forward traffic to. To acoomplish that, we use [configmap](https://kubernetes.io/docs/concepts/configuration/configmap/) to pass that value as a environment variable that can be picked up. 
 
 ```
-➜ hugo server
-
-INFO 2021/01/21 21:07:55 Using config file: 
-Building sites … INFO 2021/01/21 21:07:55 syncing static files to /
-Built in 288 ms
-Error: Error building site: TOCSS: failed to transform "scss/main.scss" (text/x-scss): resource "scss/scss/main.scss_9fadf33d895a46083cdd64396b57ef68" not found in file cache
+   kubectl create configmap windows-service --from-literal=service=iis-svc
 ```
 
-This error occurs if you have not installed the extended version of Hugo.
-See our [user guide](https://www.docsy.dev/docs/getting-started/) for instructions on how to install Hugo.
+### Deploy Nginx to forward traffic
 
+You can manually update an Nginx image to foward the traffic to the Windows Server based service. However to make it more dynamic in this example, we will use an updated Nginx image that takes an environment variable as the service. The updated Nginx instance will need a configuration file that forwards all traffic to the Windows Server based service. To accomplish that, we use the example configuartion below. The file can be found under `/etc/nginx/conf.d/frontend.conf.template` for docker image `sapient007/nginx-proxy:test_build_env` as a reference. 
+
+```
+   server {
+      listen 80;
+
+      location / {
+         proxy_pass http://${service_name};
+      }
+   }
+
+```
+
+the nginx instance needs to be updated to refelct the service name post start. To accomplish this, we must provide the environment variable `service_name` and also a command to do a environment variable substitution post start. below is a deployment manifest for referece. The portion that updates the Nginx instance occurs at the `postStart` event
+
+```
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nginx
+  labels:
+    app: nginx
+spec:
+  selector:
+    matchLabels:
+      app: nginx
+  replicas: 1
+  template:
+    metadata:
+      labels:
+        app: nginx
+    spec:
+      containers:
+      - name: nginx
+        image: "sapient007/nginx-proxy:test_build_env"
+        lifecycle:
+          postStart:
+            exec:
+              command:
+                - "sh"
+                - "-c"
+                - |
+                  envsubst '${service_name}' < /etc/nginx/conf.d/default.conf.template > /etc/nginx/conf.d/default.conf
+                  nginx -s reload
+          preStop:
+            exec:
+              command: ["/usr/sbin/nginx","-s","quit"]
+        env:
+          - name: service_name
+            valueFrom:
+              configMapKeyRef:
+                name: windows-service
+                key: service
+```
+
+
+## create service for Nginx forwarder and Ingress resource 
+at this point, you should have 2 working depoyments. One deployments is your Windows Server based deployment and the other being the Nginx deployment that forwards traffic 
+
+![deployments](./assets/deployments.png)
+
+once all pods are healthy in the deployment. You can expose the Nginx deployment with a NodePort. 
+
+```
+  kubectl expose deploy nginx --name nginx-svc --port 80 --target-port 80 --type NodePort
+```
+
+Once the NodePort has been created. You can create an ingress resource to expose the NodePort created previously 
+
+```
+   apiVersion: networking.k8s.io/v1beta1
+   kind: Ingress
+   metadata:
+   name: basic-ingress
+   spec:
+   backend:
+      serviceName: nginx-svc
+      servicePort: 80
+```
+
+takes a minute or 2 for an LB resource in addition to external IP to be created and routeable. To check status and IP of your ingress with
+
+```
+  kubectl get ingress
+```
+
+Open a browser instance to the IP address once it's available and it should be forwarding all traffic from the Nginx instance to your Windows Server based deployment 
+
+![IIS](./assets/iis.png)
